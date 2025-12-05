@@ -858,7 +858,7 @@ hm2 <-   pheatmap::pheatmap(overlap_results$overlap_matrix_down,
 svg('supplementary_data/hm2.svg')
 hm2
 dev.off()
-# Check if LTA4H specifically appears in multiple diseases
+# Check if certain proteins specifically appears in multiple diseases
 check_specific_protein <- function(protein_name, overlap_results) {
   diseases <- names(overlap_results$up_regulated)
   
@@ -878,11 +878,6 @@ check_specific_protein <- function(protein_name, overlap_results) {
   }
 }
 
-# Check for LTA4H specifically
-check_specific_protein("LTA4H", overlap_results)
-
-
-# First, let's ensure we have the necessary packages
 required_packages <- c("ggplot2", "UpSetR", "VennDiagram", "ComplexHeatmap", "eulerr", "cowplot")
 for(pkg in required_packages) {
   if(!requireNamespace(pkg, quietly = TRUE)) {
