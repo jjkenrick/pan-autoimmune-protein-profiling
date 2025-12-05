@@ -654,59 +654,6 @@ umap_glm <- ggplot(glm_plot_data, aes(x = UMAP1, y = UMAP2, color = Disease)) +
 both_umaps <- umap_all+ umap_glm
 
 
-#### Figure 5 ####
-
-diseases <- c("Myositis", "Rheumatoid arthritis", "Systemic lupus erythematosus", "Systemic sclerosis", "Sjögrens syndrome") 
-all_results <- list()
-
-for (disease in diseases) {
-  # Get DA results - updated path for new format
-  da_results <- DA_results$individual_diseases[[disease]]$vs_other_auto$p_0.01$results
-  da_proteins <- process_da_results(da_results)
-  
-  # Get ML results (unchanged)
-  ml_proteins <- process_ml_results(ML_results$protein_importances, disease)
-  
-  # Calculate overlaps (unchanged)
-  overlaps <- calculate_overlaps(da_proteins, ml_proteins)
-  overlaps$disease <- disease
-  
-  all_results[[disease]] <- overlaps
-}
-
-# Combine all results (unchanged)
-final_data <- do.call(rbind, all_results)
-
-# Create the plot
-fig5a <- ggplot(final_data, aes(x = disease, y = count, fill = category)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = c(
-    "DA Only" = "#F56565",  #F56565  # Green
-    "ML Only" = "#48BB78",    # Blue
-    "Both Methods" = "#4299E1" # Red
-  )) +
-  scale_x_discrete(labels = disease_abbreviations) + 
-  labs(
-    title = "",
-    x = "",
-    y = "Number of Proteins",
-    fill = ""
-  ) +
-  theme_simple +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid.major = element_line(color = "gray90"),
-    panel.grid.minor = element_line(color = "gray95"),
-    legend.position = c(1, 1),
-    legend.justification = c("right", "top"),
-  )
-
-#comparison_plot <- plot_method_comparison(overlap_method_results) # deleted this from main file bc I don't think necessary
-
-
-### PPI figures
-## check PPI testing file
-
 #### Supplementary Figures ####
 #plot_method_comparison(comparison_results)
 
