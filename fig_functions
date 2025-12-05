@@ -1,0 +1,878 @@
+# note aug 29 - checked that the volcano code is the same from the improved_volcano_0707.R script
+
+####   Figure related functions  
+
+
+
+####             Boxplots       #####
+
+## note JK 7/4: kept the first boxplots function from functions_panAI.R
+# then realized it doesn't have color selection that I need for fig 3 - replaced from like 1256 of functions_panAI script
+
+
+do_many_boxplots_AI <- function(data_long, 
+                                protein_list, 
+                                colorpal, 
+                                yourtitle, 
+                                ncol = 2, 
+                                disease_abbreviations = NULL,
+                                disease_order,
+                                display_type = c("full", "abbrev"),
+                                highlight_disease_abbrev = NULL,
+                                show_x_axis = TRUE,
+                                point_size = 0.5) {
+  
+  # Match argument and set default to "full" if not specified
+  display_type <- match.arg(display_type)
+  
+  # Define which diseases are infectious
+  infectious_diseases <- c("Influenza", "Streptococcal soft tissue infection", "Malaria")
+  
+  # Function to map individual diseases to groups
+  map_disease_to_group <- function(disease) {
+    case_when(
+      disease %in% infectious_diseases ~ "Infectious",
+      disease == "Healthy" ~ "Healthy",
+      TRUE ~ disease  # Keep autoimmune diseases as individual names
+    )
+  }
+  
+  # Prepare the data with disease grouping and proper ordering
+  data_long <- data_long %>%
+    mutate(
+      # Group diseases first
+      Disease_Group = map_disease_to_group(Disease),
+      # Ensure Disease_Group is properly ordered
+      Disease_Group = factor(Disease_Group, levels = disease_order)
+    )
+  
+  # If using abbreviations, add the display column
+  if (display_type == "abbrev" && !is.null(disease_abbreviations)) {
+    ordered_abbreviations <- disease_abbreviations[disease_order]
+    data_long <- data_long %>%
+      mutate(
+        Disease_display = case_when(
+          Disease_Group == "Healthy" ~ "HC",
+          Disease_Group == "Infectious" ~ "IC",
+          Disease_Group == "Myositis" ~ "IIM",
+          Disease_Group == "Rheumatoid arthritis" ~ "RA",
+          Disease_Group == "Sjögrens syndrome" ~ "SjD",
+          Disease_Group == "Systemic lupus erythematosus" ~ "SLE",
+          Disease_Group == "Systemic sclerosis" ~ "SSc",
+          TRUE ~ Disease_Group
+        ),
+        Disease_display = factor(Disease_display, 
+                                 levels = c("HC", "IC", "IIM", "RA", "SjD", "SLE", "SSc"))
+      )
+  }
+  
+  # Modify the color palette if a disease abbreviation to highlight is specified
+  if (!is.null(highlight_disease_abbrev)) {
+    # Find the full disease name that corresponds to the abbreviation
+    # Create reverse mapping from abbreviation to full name
+    reverse_abbrev_mapping <- names(disease_abbreviations)
+    names(reverse_abbrev_mapping) <- disease_abbreviations
+    
+    # Get the full disease name from the abbreviation
+    highlight_disease <- reverse_abbrev_mapping[highlight_disease_abbrev]
+    
+    # Store the original color for the highlighted disease
+    highlight_color <- colorpal[highlight_disease]
+    
+    # Create a new palette with all diseases in gray except the highlighted one
+    gray_palette <- rep("#CCCCCC", length(colorpal))  # Medium gray for all diseases
+    names(gray_palette) <- names(colorpal)
+    
+    # Set the highlight disease to its original color
+    gray_palette[highlight_disease] <- highlight_color
+    
+    # Use the modified palette
+    colorpal <- gray_palette
+  }
+  
+  # Create the plot based on display type
+  plot <- data_long %>%
+    filter(Assay %in% protein_list) %>%
+    ggplot(aes(
+      x = if(display_type == "abbrev") Disease_display else Disease_Group, 
+      y = NPX, 
+      color = Disease_Group  # Use Disease_Group for coloring
+    )) +
+    geom_quasirandom(alpha = 0.8, size = point_size, show.legend = FALSE) +
+    geom_boxplot(fill = NA, color = "black", outlier.color = NA) +
+    facet_wrap(~ Assay, ncol = ncol, scales = "free_y") +
+    scale_color_manual(values = colorpal) +
+    theme_simple +
+    ggtitle(yourtitle)
+  
+  # Control x-axis visibility
+  if (!show_x_axis) {
+    plot <- plot + 
+      theme(axis.text.x = element_blank(),
+            axis.title.x = element_blank(),
+            axis.ticks.x = element_blank())
+  } else {
+    plot <- plot +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            axis.title.x = element_blank())
+  }
+  
+  return(plot)
+}
+
+#####          Figure 1      #######
+create_disease_metadata <- function(disease_order, disease_abbreviations, disease_colors) {
+  # Create tibble with the provided order and mappings
+  disease_meta <- tibble(
+    full_name = disease_order,
+    abbreviation = disease_abbreviations[disease_order],
+    color = disease_colors[disease_order],
+    Class = ifelse(
+      full_name %in% c("Healthy", "Infectious"),
+      paste(full_name, "Control"),
+      "Autoimmune"
+    ),
+    # Create display names for y-axis labels
+    display_name = case_when(
+      full_name == "Healthy" ~ "Healthy Control",
+      full_name == "Infectious" ~ "Infection Control",
+      TRUE ~ full_name  # Keep individual autoimmune disease names
+    )
+  ) |> 
+    mutate(
+      # Create factor with correct order
+      full_name = factor(full_name, levels = disease_order),
+      # Create named vectors for easy lookup
+      name_to_abbrev = setNames(abbreviation, full_name),
+      name_to_color = setNames(color, full_name),
+      # Create display name mapping
+      name_to_display = setNames(display_name, full_name)
+    )
+  
+  return(disease_meta)
+}
+
+# Define which diseases are infectious
+infectious_diseases <- c("Influenza", "Streptococcal soft tissue infection", "Malaria")
+
+# Function to map individual diseases to groups
+map_disease_to_group <- function(disease) {
+  case_when(
+    disease %in% infectious_diseases ~ "Infectious",
+    disease == "Healthy" ~ "Healthy",
+    TRUE ~ disease  # Keep autoimmune diseases as individual names
+  )
+}
+
+create_disease_plots <- function(data, disease_meta) {
+  # Map individual diseases to groups and create display names
+  data <- data %>%
+    mutate(
+      # Group diseases
+      Disease_Group = map_disease_to_group(Disease),
+      # Create display names with abbreviations
+      Disease_Display = case_when(
+        Disease_Group == "Healthy" ~ "HC",
+        Disease_Group == "Infectious" ~ "IC",
+        Disease_Group == "Myositis" ~ "IIM",
+        Disease_Group == "Rheumatoid arthritis" ~ "RA",
+        Disease_Group == "Sjögrens syndrome" ~ "SjD",
+        Disease_Group == "Systemic lupus erythematosus" ~ "SLE",
+        Disease_Group == "Systemic sclerosis" ~ "SSc",
+        TRUE ~ Disease_Group
+      ),
+      # Factor with correct order for grouping
+      Disease_Group = factor(Disease_Group, levels = disease_order),
+      # Factor with correct order for display
+      Disease_Display = factor(Disease_Display, 
+                               levels = c("HC", "IC", "IIM", "RA", "SjD", "SLE", "SSc"))
+    )
+  
+  # Common theme
+  theme_clean <- theme(
+    text = element_text(size = 20),
+    panel.background = element_rect(fill = 'transparent'),
+    plot.background = element_rect(fill = 'transparent', color = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.background = element_rect(fill = 'transparent'),
+    legend.box.background = element_rect(fill = 'transparent')
+  )
+  
+  # Age distribution plot
+  p_top <- ggplot(data, 
+                  aes(x = Age, 
+                      y = Disease_Display, 
+                      fill = Disease_Group)) +
+    geom_density_ridges(
+      alpha = 0.9,
+      scale = 0.9,
+      show.legend = FALSE,
+      size = 0.5,
+      color = "black",
+      quantile_lines = TRUE,
+      quantile_fun = function(x,...) mean(x),
+      bandwidth = 2.5,
+      rel_min_height = 0.01
+    ) +
+    theme_clean +
+    scale_fill_manual(values = disease_colors) +
+    xlab("Age") +
+    ylab("")
+  
+  # Sample count plot
+  p_bottom <- data %>%
+    drop_na() %>%
+    group_by(Disease_Display, Sex) %>%
+    summarise(n = n_distinct(DAid), .groups = "drop") %>%
+    ggplot(aes(Disease_Display, n, fill = Sex, group = Sex)) +
+    geom_bar(
+      stat = "identity",
+      width = 0.5,
+      alpha = 0.7,
+      color = "black",
+      position = "stack"
+    ) +
+    coord_flip() +
+    theme_clean +
+    theme(
+      axis.line.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.title.y = element_blank(),
+      legend.position = "top"
+    ) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    ylab("Number of samples")
+  
+  # Return list of plots
+  return(list(
+    age_dist = p_top,
+    sample_counts = p_bottom,
+    combined = p_top + p_bottom + plot_layout(ncol = 2, heights = c(2, 1))
+  ))
+}
+
+## for grouped class comparisons
+create_labeled_volcano_plot <- function(limma_results, title, 
+                                        pval_threshold = 0.05, 
+                                        fc_threshold = 0.25,
+                                        n_labels_up = 15,    # Number of Higher proteins to label
+                                        n_labels_down = 15,  # Number of Lower proteins to label
+                                        max_overlaps = 50, # Control label overlaps
+                                        show.legend = FALSE) { 
+  
+  # Get DE results
+  da_results <- limma_results$results
+  
+  # Add significance and fold change categories for coloring
+  plot_data <- da_results %>%
+    mutate(
+      significance = case_when(
+        adj.P.Val < pval_threshold & logFC > fc_threshold ~ "Higher",
+        adj.P.Val < pval_threshold & logFC < -fc_threshold ~ "Lower",
+        TRUE ~ "Not Significant"
+      ),
+      log_pval = -log10(adj.P.Val)
+    )
+  
+  # Find top N up-regulated proteins to label
+  top_up <- plot_data %>%
+    filter(significance == "Higher") %>%
+    arrange(adj.P.Val) %>%
+    head(n_labels_up) %>%
+    pull(protein)
+  
+  # Find top N down-regulated proteins to label
+  top_down <- plot_data %>%
+    filter(significance == "Lower") %>%
+    arrange(adj.P.Val) %>%
+    head(n_labels_down) %>%
+    pull(protein)
+  
+  # Create a separate data frame for labels
+  label_data <- plot_data %>%
+    filter(protein %in% c(top_up, top_down))
+  
+  # Set colors for different categories
+  color_map <- c(
+    "Higher" = "#D73027",
+    "Lower" = "#4575B4", 
+    "Not Significant" = "gray80"
+  )
+  
+  # Create the base volcano plot
+  p <- ggplot(plot_data, aes(x = logFC, y = log_pval)) +
+    geom_point(aes(color = significance), alpha = 0.7, size = 1.5,show.legend = show.legend) +
+    geom_hline(yintercept = -log10(pval_threshold), linetype = "dashed", color = "gray40") +
+    geom_vline(xintercept = c(-fc_threshold, fc_threshold), linetype = "dashed", color = "gray40") +
+    scale_color_manual(values = color_map, name = "") +
+    labs(
+      title = title,
+      subtitle = paste0("p < ", pval_threshold),
+      x = "Log2 Fold Change",
+      y = "-Log10 Adjusted P-value"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "right",
+      legend.text = element_text(size = 12),
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 10),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10)
+    )
+  
+  # Add labels for selected proteins
+  if(nrow(label_data) > 0) {
+    p <- p + ggrepel::geom_text_repel(
+      data = label_data,
+      aes(label = protein),
+      box.padding = 0.5,
+      point.padding = 0.3,
+      segment.color = "gray50",
+      size = 4,
+      max.overlaps = max_overlaps,
+      min.segment.length = 0
+    )
+
+  }
+  return(p)
+}
+
+###########       Figure 2        ############
+process_summary <- function(da_results, disease_name) {
+  # Get the DA results table from the new format
+  da_table <- da_results
+  
+  # Count up and down regulated genes using the new 'regulation' column
+  up_prots <- sum(da_table$regulation == "Higher", na.rm = TRUE)
+  down_prots <- sum(da_table$regulation == "Lower", na.rm = TRUE)
+  
+  tibble(
+    direction = c("Higher", "Lower"),
+    count = c(up_prots, down_prots),
+    Disease = disease_name
+  )
+}
+
+# Function to get significant proteins for each disease
+get_sig_proteins <- function(results, p_cutoff = 0.01) {
+  results |> 
+    filter(adj.P.Val < p_cutoff) |> 
+    filter(logFC > 0.25) |> 
+    pull(protein)
+}
+
+
+######################################
+#              Figure 5              #
+######################################
+
+# Function to process DA results for a single disease
+process_da_results <- function(da_results) {
+  if (is.null(da_results)) return(character(0))
+  significant <- da_results |> 
+    filter(adj.P.Val < 0.01)  |> 
+    pull(protein)
+  return(significant)
+}
+
+# Function to process ML results for a single disease
+process_ml_results <- function(ml_results, disease) {
+  ml_proteins <- ml_results |> 
+    filter(class == disease) |> 
+    filter(abs(estimate) > 0) |> 
+    pull(term)  |> 
+    unique()
+  return(ml_proteins) 
+}
+
+# Function to calculate overlaps for a single disease
+calculate_overlaps <- function(da_proteins, ml_proteins) {
+  da_set <- unique(da_proteins)
+  ml_set <- unique(ml_proteins)
+  
+  both <- length(intersect(da_set, ml_set))
+  da_only <- length(setdiff(da_set, ml_set))
+  ml_only <- length(setdiff(ml_set, da_set))
+  
+  data.frame(
+    category = c("DA Only", "ML Only", "Both Methods"),
+    count = c(da_only, ml_only, both)
+  )
+}
+
+#####          Volcano      ######
+## updated on 7/7
+
+# --- Main Enhanced Volcano Plot Function ---
+
+#' Create enhanced volcano plot for disease vs other autoimmune diseases
+#' incorporating information from healthy and infection comparisons
+#'
+#' @param disease_results List containing results for a specific disease with
+#'   vs_other_auto, vs_healthy, and vs_infections comparisons
+#' @param disease_name Character string, name of the disease
+#' @param p_threshold Numeric, p-value threshold (default: 0.01)
+#' @param fc_threshold Numeric, fold change threshold (default: 0.25)
+#' @param max_labels Numeric, maximum number of proteins to label (default: 20)
+#' @param custom_proteins Optional character vector of specific proteins to label
+#' @param label_mode Character, "auto", "custom", or "both" (default: "auto")
+#' @return ggplot object
+create_enhanced_autoimmune_volcano <- function(disease_results,
+                                               disease_name,
+                                               p_threshold = 0.01,
+                                               fc_threshold = 0.25,
+                                               max_labels = 20,
+                                               custom_proteins = NULL,
+                                               label_mode = "auto") {
+  
+  # Validate inputs
+  if (!all(c("vs_other_auto", "vs_healthy", "vs_infections") %in% names(disease_results))) {
+    stop("disease_results must contain vs_other_auto, vs_healthy, and vs_infections comparisons")
+  }
+  
+  # Get disease abbreviation
+  disease_abbrev <- if (disease_name %in% names(DISEASE_ABBREVIATIONS)) {
+    DISEASE_ABBREVIATIONS[disease_name]
+  } else {
+    disease_name
+  }
+  
+  # Extract results data frames
+  autoimmune_results <- disease_results$vs_other_auto$results
+  healthy_results <- disease_results$vs_healthy$results
+  infection_results <- disease_results$vs_infections$results
+  
+  # Prepare comprehensive data
+  plot_data <- prepare_enhanced_volcano_data(
+    autoimmune_results = autoimmune_results,
+    healthy_results = healthy_results,
+    infection_results = infection_results,
+    fc_threshold = fc_threshold,
+    p_threshold = p_threshold,
+    max_labels = max_labels,
+    custom_proteins = custom_proteins,
+    label_mode = label_mode
+  )
+  
+  # Define enhanced color palette
+  protein_colors <- c(
+    "Higher vs all controls" = "#8B0000",           # Dark red
+    "Higher vs autoimmune + healthy" = "#DC143C",   # Crimson
+    "Higher vs autoimmune + infections" = "#FF6347", # Tomato
+    "Higher vs autoimmune only" = "#FFA500",        # Orange
+    "Lower vs all controls" = "#000080",            # Navy blue
+    "Lower vs autoimmune + healthy" = "#4169E1",    # Royal blue
+    "Lower vs autoimmune + infections" = "#6495ED", # Cornflower blue
+    "Lower vs autoimmune only" = "#87CEEB",         # Sky blue
+    "Conflicting patterns" = "#9370DB",             # Medium purple
+    "Not significant" = "#D3D3D3"                   # Light gray
+  )
+  
+  # Create plot title
+  plot_title <- sprintf("%s vs grouped SARDs\n(p < %s, |Log2FC| > %s)",
+                        disease_abbrev, p_threshold, fc_threshold)
+  
+  # Calculate plot ranges
+  #plot_ranges <- calculate_plot_ranges(plot_data, fc_threshold)
+  
+  # Create base plot
+  p <- create_enhanced_base_volcano(
+    plot_data = plot_data,
+    #plot_ranges = plot_ranges,
+    protein_colors = protein_colors,
+    p_threshold = p_threshold,
+    fc_threshold = fc_threshold,
+    title = plot_title
+  )
+  
+  # Add labels if needed
+  if (any(!is.na(plot_data$Label))) {
+    p <- add_enhanced_volcano_labels(p, plot_data, protein_colors)
+  }
+  
+  return(p)
+}
+
+# --- Helper Function: Prepare Enhanced Volcano Data ---
+
+#' Prepare data for enhanced volcano plot with comprehensive classification
+#'
+#' @param autoimmune_results Results from disease vs other autoimmune comparison
+#' @param healthy_results Results from disease vs healthy comparison
+#' @param infection_results Results from disease vs infection comparison
+#' @param fc_threshold Fold change threshold
+#' @param p_threshold P-value threshold
+#' @param max_labels Maximum number of labels
+#' @param custom_proteins Custom proteins to label
+#' @param label_mode Labeling mode
+#' @return Prepared data frame for plotting
+prepare_enhanced_volcano_data <- function(autoimmune_results,
+                                          healthy_results,
+                                          infection_results,
+                                          fc_threshold,
+                                          p_threshold,
+                                          max_labels,
+                                          custom_proteins,
+                                          label_mode) {
+  
+  # Clean and prepare comparison data
+  healthy_status <- healthy_results %>%
+    select(protein, logFC, adj.P.Val) %>%
+    mutate(
+      healthy_reg = case_when(
+        logFC > fc_threshold & adj.P.Val < p_threshold ~ "Up",
+        logFC < -fc_threshold & adj.P.Val < p_threshold ~ "Down",
+        TRUE ~ "None"
+      )
+    ) %>%
+    select(protein, healthy_reg)
+  
+  infection_status <- infection_results %>%
+    select(protein, logFC, adj.P.Val) %>%
+    mutate(
+      infection_reg = case_when(
+        logFC > fc_threshold & adj.P.Val < p_threshold ~ "Up",
+        logFC < -fc_threshold & adj.P.Val < p_threshold ~ "Down",
+        TRUE ~ "None"
+      )
+    ) %>%
+    select(protein, infection_reg)
+  
+  # Prepare main plot data
+  plot_data <- autoimmune_results %>%
+    filter(!is.na(logFC), !is.na(adj.P.Val), !is.na(protein)) %>%
+    filter(is.finite(logFC), is.finite(adj.P.Val), adj.P.Val > 0) %>%
+    left_join(healthy_status, by = "protein") %>%
+    left_join(infection_status, by = "protein") %>%
+    mutate(
+      # Replace NA values with "None"
+      healthy_reg = ifelse(is.na(healthy_reg), "None", healthy_reg),
+      infection_reg = ifelse(is.na(infection_reg), "None", infection_reg),
+      # Calculate significance metrics
+      log10_p = -log10(adj.P.Val),
+      abs_logFC = abs(logFC),
+      sig_score = log10_p * abs_logFC,
+      # Enhanced protein classification
+      Protein_Class = classify_enhanced_proteins(., fc_threshold, p_threshold)
+    ) %>%
+    filter(is.finite(log10_p), is.finite(sig_score))
+  
+  # Determine labels
+  plot_data <- determine_enhanced_labels(
+    plot_data, max_labels, custom_proteins, label_mode
+  )
+  
+  return(plot_data)
+}
+
+# --- Helper Function: Enhanced Protein Classification ---
+
+#' Classify proteins based on regulation patterns across all three comparisons
+#'
+#' @param data Data frame with comparison results
+#' @param fc_threshold Fold change threshold
+#' @param p_threshold P-value threshold
+#' @return Character vector of classifications
+classify_enhanced_proteins <- function(data, fc_threshold, p_threshold) {
+  case_when(
+    # Not significant in main comparison (vs other autoimmune)
+    abs(data$logFC) < fc_threshold | data$adj.P.Val >= p_threshold ~ "Not significant",
+    
+    # Higher in disease vs autoimmune - check other comparisons
+    data$logFC > fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg == "Up" & data$infection_reg == "Up" ~ "Higher vs all controls",
+    
+    data$logFC > fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg == "Up" & data$infection_reg %in% c("None", "Down") ~ "Higher vs autoimmune + healthy",
+    
+    data$logFC > fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg %in% c("None", "Down") & data$infection_reg == "Up" ~ "Higher vs autoimmune + infections",
+    
+    data$logFC > fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg %in% c("None", "Down") & data$infection_reg %in% c("None", "Down") ~ "Higher vs autoimmune only",
+    
+    # Lower in disease vs autoimmune - check other comparisons
+    data$logFC < -fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg == "Down" & data$infection_reg == "Down" ~ "Lower vs all controls",
+    
+    data$logFC < -fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg == "Down" & data$infection_reg %in% c("None", "Up") ~ "Lower vs autoimmune + healthy",
+    
+    data$logFC < -fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg %in% c("None", "Up") & data$infection_reg == "Down" ~ "Lower vs autoimmune + infections",
+    
+    data$logFC < -fc_threshold & data$adj.P.Val < p_threshold & 
+      data$healthy_reg %in% c("None", "Up") & data$infection_reg %in% c("None", "Up") ~ "Lower vs autoimmune only",
+    
+    # Conflicting patterns (significant in main comparison but conflicting in others)
+    data$adj.P.Val < p_threshold & abs(data$logFC) > fc_threshold ~ "Conflicting patterns",
+    
+    # Default fallback
+    TRUE ~ "Not significant"
+  )
+}
+
+# --- Helper Function: Determine Enhanced Labels ---
+
+#' Determine which proteins to label based on significance and mode
+#'
+#' @param plot_data Prepared plot data
+#' @param max_labels Maximum number of labels
+#' @param custom_proteins Custom proteins to label
+#' @param label_mode Labeling mode
+#' @return Data frame with Label column added
+determine_enhanced_labels <- function(plot_data, max_labels, custom_proteins, label_mode) {
+  
+  plot_data$Label <- NA_character_
+  
+  # Auto labeling: top significant proteins
+  if (label_mode %in% c("auto", "both")) {
+    top_proteins <- plot_data %>%
+      filter(Protein_Class != "Not significant") %>%
+      filter(is.finite(sig_score)) %>%
+      arrange(desc(sig_score)) %>%
+      head(max_labels) %>%
+      pull(protein)
+    
+    if (length(top_proteins) > 0) {
+      plot_data$Label[plot_data$protein %in% top_proteins] <- 
+        plot_data$protein[plot_data$protein %in% top_proteins]
+    }
+  }
+  
+  # Custom labeling
+  if (label_mode %in% c("custom", "both") && !is.null(custom_proteins)) {
+    custom_mask <- plot_data$protein %in% custom_proteins
+    if (any(custom_mask)) {
+      plot_data$Label[custom_mask] <- plot_data$protein[custom_mask]
+    }
+  }
+  
+  return(plot_data)
+}
+
+# --- Helper Function: Enhanced Base Volcano ---
+
+#' Create enhanced base volcano plot
+#'
+#' @param plot_data Prepared plot data
+#' @param plot_ranges Plot ranges
+#' @param protein_colors Color palette
+#' @param p_threshold P-value threshold
+#' @param fc_threshold Fold change threshold
+#' @param title Plot title
+#' @return ggplot object
+create_enhanced_base_volcano <- function(plot_data, #plot_ranges, 
+                                         protein_colors,
+                                         p_threshold, 
+                                         fc_threshold, 
+                                         title) {
+  
+  ggplot(plot_data, aes(x = logFC, y = log10_p)) +
+    # Threshold lines
+    geom_hline(yintercept = -log10(p_threshold), linetype = "dashed", 
+               color = "gray50", alpha = 0.7) +
+    geom_vline(xintercept = c(-fc_threshold, fc_threshold), linetype = "dashed", 
+               color = "gray50", alpha = 0.7) +
+    # Points
+    geom_point(aes(color = Protein_Class), size = 2, alpha = 0.8) + # testing 3 
+    # Colors
+    scale_color_manual(values = protein_colors, name = "Protein Classification") +
+    # Scales
+    #scale_x_continuous(limits = plot_ranges$x_range, expand = expansion(mult = 0.05)) +
+    #scale_y_continuous(limits = plot_ranges$y_range, expand = expansion(mult = c(0.02, 0.05))) +
+    # Labels
+    labs(
+      title = title,
+      x = expression(log[2]~"Fold Change"),
+      y = expression(-log[10]~"Adjusted P-value"),
+      caption = sprintf("n = %d proteins", nrow(plot_data))
+    ) +
+    # Theme
+    theme_minimal(base_size = 15) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 15, face = "bold"), # INCREASED from 13 to 15
+      plot.caption = element_text(hjust = 1, size = 10, color = "gray50"), # INCREASED from 9 to 10
+      axis.title = element_text(size = 12, face = "bold"), # ADDED - axes titles
+      axis.text = element_text(size = 11), # ADDED - axes tick labels
+      legend.position = c(-0, 0.98), # TOP RIGHT CORNER (x=0.98, y=0.98)
+      legend.justification = c("left", "top"), # ANCHOR POINT
+      legend.background = element_rect(fill = "white", color = "gray80", size = 0.3), # BACKGROUND BOX
+      legend.margin = margin(5, 5, 5, 5), # PADDING AROUND LEGEND
+      legend.title = element_text(size = 12, face = "bold"), # INCREASED from 10 to 12
+      legend.text = element_text(size = 10), # INCREASED from 8 to 10
+      legend.key.size = unit(1.0, "lines"), # INCREASED from 0.8 to 1.0
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = "gray90", size = 0.3),
+      aspect.ratio = 0.6 # CHANGED from 1 to 0.6 to make it wider
+    )
+}
+
+# --- Helper Function: Add Enhanced Labels ---
+
+#' Add labels to enhanced volcano plot
+#'
+#' @param plot Base ggplot object
+#' @param plot_data Plot data with labels
+#' @param protein_colors Color palette
+#' @return ggplot object with labels
+add_enhanced_volcano_labels <- function(plot, plot_data, protein_colors) {
+  
+  label_data <- plot_data %>%
+    filter(!is.na(Label)) %>%
+    filter(is.finite(logFC), is.finite(log10_p))
+  
+  if (nrow(label_data) > 0) {
+    plot <- plot +
+      geom_label_repel(
+        data = label_data,
+        aes(label = Label, fill = Protein_Class),
+        color = "white",
+        size = 4,
+        fontface = "bold",
+        max.overlaps = 15,
+        box.padding = 0.4,
+        point.padding = 0.3,
+        segment.color = "gray50",
+        segment.size = 0.3,
+        min.segment.length = 0.1,
+        force = 3,
+        direction = "both",
+        na.rm = TRUE
+      ) +
+      scale_fill_manual(values = protein_colors, guide = "none")
+  }
+  
+  return(plot)
+}
+
+# --- Batch Processing Function ---
+
+#' Create enhanced volcano plots for multiple diseases
+#'
+#' @param DA_results Results from comprehensive DA analysis
+#' @param p_threshold P-value threshold to use
+#' @param diseases Vector of diseases to plot (NULL for all)
+#' @param max_labels Maximum labels per plot
+#' @param custom_proteins_list Named list of custom proteins per disease
+#' @return Named list of ggplot objects
+create_batch_enhanced_autoimmune_volcanos <- function(DA_results,
+                                                      p_threshold = "0.01",
+                                                      diseases = NULL,
+                                                      max_labels = 20,
+                                                      custom_proteins_list = NULL) {
+  
+  if (is.null(diseases)) {
+    diseases <- names(DA_results$individual_diseases)
+  }
+  
+  plots <- list()
+  p_key <- paste0("p_", p_threshold)
+  
+  for (disease in diseases) {
+    if (disease %in% names(DA_results$individual_diseases)) {
+      disease_results <- DA_results$individual_diseases[[disease]]
+      
+      # Extract results for the specific p-value threshold
+      disease_data <- list(
+        vs_other_auto = disease_results$vs_other_auto[[p_key]],
+        vs_healthy = disease_results$vs_healthy[[p_key]],
+        vs_infections = disease_results$vs_infections[[p_key]]
+      )
+      
+      # Get custom proteins for this disease
+      custom_proteins <- if (!is.null(custom_proteins_list) && 
+                             disease %in% names(custom_proteins_list)) {
+        custom_proteins_list[[disease]]
+      } else {
+        NULL
+      }
+      
+      # Create plot
+      tryCatch({
+        plots[[disease]] <- create_enhanced_autoimmune_volcano(
+          disease_results = disease_data,
+          disease_name = disease,
+          p_threshold = as.numeric(gsub("0\\.", "0.", p_threshold)),
+          max_labels = max_labels,
+          custom_proteins = custom_proteins,
+          label_mode = if (is.null(custom_proteins)) "auto" else "both"
+        )
+      }, error = function(e) {
+        warning(sprintf("Failed to create plot for %s: %s", disease, e$message))
+      })
+    }
+  }
+  
+  return(plots)
+}
+
+# --- Summary Function ---
+
+#' Create summary of enhanced volcano plot results
+#'
+#' @param DA_results Results from comprehensive DA analysis
+#' @param p_threshold P-value threshold to use
+#' @return Data frame with summary statistics
+create_enhanced_volcano_summary <- function(DA_results, p_threshold = "0.01") {
+  
+  summary_list <- list()
+  p_key <- paste0("p_", p_threshold)
+  
+  for (disease in names(DA_results$individual_diseases)) {
+    disease_results <- DA_results$individual_diseases[[disease]]
+    
+    if (all(c("vs_other_auto", "vs_healthy", "vs_infections") %in% names(disease_results))) {
+      # Get the autoimmune comparison results
+      auto_results <- disease_results$vs_other_auto[[p_key]]$results
+      
+      # Count significant proteins
+      n_sig_up <- sum(auto_results$logFC > 0.25 & auto_results$adj.P.Val < as.numeric(gsub("0\\.", "0.", p_threshold)), na.rm = TRUE)
+      n_sig_down <- sum(auto_results$logFC < -0.25 & auto_results$adj.P.Val < as.numeric(gsub("0\\.", "0.", p_threshold)), na.rm = TRUE)
+      
+      summary_list[[disease]] <- data.frame(
+        Disease = disease,
+        n_total = nrow(auto_results),
+        n_sig_higher = n_sig_up,
+        n_sig_lower = n_sig_down,
+        n_total_sig = n_sig_up + n_sig_down,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+  
+  if (length(summary_list) > 0) {
+    return(do.call(rbind, summary_list) %>%
+             arrange(desc(n_total_sig)))
+  } else {
+    return(data.frame())
+  }
+}
+
+# ===== EXAMPLE USAGE =====
+
+# # Create enhanced volcano plots for all diseases
+#enhanced_autoimmune_plots <- create_batch_enhanced_autoimmune_volcanos(
+#  DA_results_0707,
+#  p_threshold = "0.01",
+#  max_labels = 25
+#)
+# 
+# # Create summary
+# enhanced_summary <- create_enhanced_volcano_summary(DA_results_0707)
+# print(enhanced_summary)
+# 
+# # Create plot for specific disease with custom proteins
+# myositis_enhanced <- create_enhanced_autoimmune_volcano(
+#   disease_results = list(
+#     vs_other_auto = DA_results_0707$individual_diseases$Myositis$vs_other_auto$p_0.01,
+#     vs_healthy = DA_results_0707$individual_diseases$Myositis$vs_healthy$p_0.01,
+#     vs_infections = DA_results_0707$individual_diseases$Myositis$vs_infections$p_0.01
+#   ),
+#   disease_name = "Myositis",
+#   custom_proteins = c("CXCL10", "PADI2", "DPY30", "KLK13"),
+#   label_mode = "both"
+# )
