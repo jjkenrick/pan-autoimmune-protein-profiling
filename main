@@ -1,0 +1,51 @@
+# main file for autoimmune analysis
+set.seed(213)
+# read in data
+long_data <- readRDS('path/to/long/data.rds')
+wide_data <- readRDS('path/to/wide/data.rds')
+metadata <- readRDS('path/to/meta/data.rds')
+
+source('functions_panAI.R')
+source('fig_functions.R')
+
+# Define disease groups
+AUTOIMMUNE_DISEASES <- c(
+  "Myositis",
+  "Systemic sclerosis",
+  "Rheumatoid arthritis",
+  "Sjögrens syndrome",
+  "Systemic lupus erythematosus",
+  "Other_Auto" = "OA"  # this will be used in limma comparison only
+)
+
+INFECTIONS <- c(
+  "Influenza",
+  "Streptococcal soft tissue infection",
+  "Malaria"
+)
+
+# Add disease abbreviations as a global variable
+DISEASE_ABBREVIATIONS <- c(
+  "Healthy" = "HC",
+  "Infections" = "IC",
+  "Myositis" = "IIM",
+  "Rheumatoid arthritis" = "RA",
+  "Sjögrens syndrome" = "SjD",
+  "Systemic lupus erythematosus" = "SLE",
+  "Systemic sclerosis" = "SSc"
+)
+
+## Differential abundance analysis ##
+DA_results <- run_comprehensive_da_analysis(wide_data, p_thresholds = 0.01)
+
+## Machine learning ##
+# remove sex and age to focus on protein influence only
+## filter for autoimmune diseases only 
+ML_wide_data <- wide_data |> 
+  select(-Sex,-Age,-Class) |>
+  filter(Disease %in% AUTOIMMUNE_DISEASES)
+
+ML_results <- lasso_multiclass_nested_cv(ML_wide_data,n_outer_folds = 5,n_inner_folds = 10)
+
+## combined results ##
+combined_results <- analyze_da_ml_methods(DA_results, ML_results, wide_data, pval_threshold = 0.01)
