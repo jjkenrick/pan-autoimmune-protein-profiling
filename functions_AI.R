@@ -181,7 +181,7 @@ run_da_comparison <- function(wide_data, case_group, control_group,
   colnames(design_matrix) <- gsub("Group_clean", "", colnames(design_matrix))
   
   # Prepare NPX data
-  metadata_cols <- c("DAid", "Disease", "Group", "Group_clean", "Sex", "Age","Class") #added Class 0828
+  metadata_cols <- c("DAid", "Disease", "Group", "Group_clean", "Sex", "Age","Class") 
   protein_data <- prepared_data %>%
     select(-any_of(metadata_cols)) %>%
     as.matrix() %>%
