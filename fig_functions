@@ -1,14 +1,6 @@
-# note aug 29 - checked that the volcano code is the same from the improved_volcano_0707.R script
-
 ####   Figure related functions  
 
-
-
 ####             Boxplots       #####
-
-## note JK 7/4: kept the first boxplots function from functions_panAI.R
-# then realized it doesn't have color selection that I need for fig 3 - replaced from like 1256 of functions_panAI script
-
 
 do_many_boxplots_AI <- function(data_long, 
                                 protein_list, 
@@ -404,7 +396,6 @@ calculate_overlaps <- function(da_proteins, ml_proteins) {
 }
 
 #####          Volcano      ######
-## updated on 7/7
 
 # --- Main Enhanced Volcano Plot Function ---
 
